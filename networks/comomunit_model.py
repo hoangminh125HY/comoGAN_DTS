@@ -393,29 +393,42 @@ class CoMoMUNITModel(BaseModel):
         return self.loss_G
 
     def training_step(self, batch, batch_idx):
+        # Set input data for the model
         self.set_input(batch)
 
-        # Lấy các optimizers thủ công
+        # Get optimizers
         opt_D, opt_G = self.optimizers()
 
-        # Cập nhật Discriminators (optimizer_idx == 0)
-        self.set_requires_grad([self.netD_A, self.netD_B], True)
-        self.set_requires_grad([self.netG_A, self.netG_B], False)
+        # Initialize GradScaler for mixed precision
+        scaler = self.scaler
+
+        # --- Update Discriminator (D) ---
+        self.set_requires_grad([self.netD_A, self.netD_B], True)  # Enable gradients for D
+        self.set_requires_grad([self.netG_A, self.netG_B], False)  # Disable gradients for G
         
+        # Calculate loss for D
         loss_D = self.training_step_D()
-        opt_D.zero_grad()  # Đảm bảo xóa gradient cũ
-        loss_D.backward()  # Tính gradient cho loss D
-        opt_D.step()  # Cập nhật D
 
-        # Cập nhật Generators (optimizer_idx == 1)
-        self.set_requires_grad([self.netD_A, self.netD_B], False)
-        self.set_requires_grad([self.netG_A, self.netG_B], True)
+        # Zero gradients, backward pass, and update
+        opt_D.zero_grad()
+        scaler.scale(loss_D).backward()  # Scale the loss before backward pass
+        scaler.step(opt_D)  # Step the optimizer
+        scaler.update()  # Update the scaler for next iteration
+
+        # --- Update Generator (G) ---
+        self.set_requires_grad([self.netD_A, self.netD_B], False)  # Disable gradients for D
+        self.set_requires_grad([self.netG_A, self.netG_B], True)  # Enable gradients for G
         
+        # Calculate loss for G
         loss_G = self.training_step_G()
-        opt_G.zero_grad()  # Đảm bảo xóa gradient cũ
-        loss_G.backward()  # Tính gradient cho loss G
-        opt_G.step()  # Cập nhật G
 
-        return loss_G  # Trả về loss của Generator (hoặc có thể là loss tổng hợp nếu cần)
+        # Zero gradients, backward pass, and update
+        opt_G.zero_grad()
+        scaler.scale(loss_G).backward()  # Scale the loss before backward pass
+        scaler.step(opt_G)  # Step the optimizer
+        scaler.update()  # Update the scaler for next iteration
+
+        return loss_G  # Return the loss for logging
+
 
 
