@@ -10,6 +10,7 @@ from .base_model import BaseModel
 from .backbones import comomunit as networks
 import random
 import munch
+from torch.cuda.amp import GradScaler
 
 
 def ModelOptions():
@@ -59,6 +60,7 @@ class CoMoMUNITModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
         self.automatic_optimization = False  # Tắt automatic optimization
+        self.scaler = GradScaler()  # Initialize GradScaler
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['D_A', 'G_A', 'cycle_A', 'rec_A', 'rec_style_B', 'rec_content_A', 'vgg_A', 'phi_net_A',
                            'D_B', 'G_B', 'cycle_B', 'rec_B', 'rec_style_A', 'rec_content_B', 'vgg_B', 'idt_B',
@@ -114,19 +116,25 @@ class CoMoMUNITModel(BaseModel):
                 param.requires_grad = False
 
     def configure_optimizers(self):
-        # Tạo optimizers
-        opt_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(), ...),
-                                lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
-        opt_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters(), ...),
-                                lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
+        # Tạo optimizers cho Generator (G) và Discriminator (D)
+        opt_G = torch.optim.Adam(
+            itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(),
+                            self.netDRB.parameters(), self.netPhi_net.parameters(),
+                            self.netPhi_net_A.parameters()),  # Các tham số của tất cả các mô hình liên quan
+            lr=self.opt.lr, betas=(self.opt.beta1, 0.999)
+        )
+        opt_D = torch.optim.Adam(
+            itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),  # Các tham số của discriminators
+            lr=self.opt.lr, betas=(self.opt.beta1, 0.999)
+        )
 
         # Tạo scheduler cho các optimizers
         scheduler_G = self.get_scheduler(self.opt, opt_G)
         scheduler_D = self.get_scheduler(self.opt, opt_D)
-        
+
         return [opt_D, opt_G], [scheduler_D, scheduler_G]
 
-
+    
     def set_input(self, input):
         # Input image. everything is mixed so we only have one style
         self.x = input['A']
@@ -384,39 +392,30 @@ class CoMoMUNITModel(BaseModel):
 
         return self.loss_G
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx):
         self.set_input(batch)
-        
-        # Lấy các optimizers từ self.optimizers()
+
+        # Lấy các optimizers thủ công
         opt_D, opt_G = self.optimizers()
 
-        if optimizer_idx == 0:
-            # Cập nhật cho Discriminators
-            self.set_requires_grad([self.netD_A, self.netD_B], True)
-            self.set_requires_grad([self.netG_A, self.netG_B], False)
+        # Cập nhật Discriminators (optimizer_idx == 0)
+        self.set_requires_grad([self.netD_A, self.netD_B], True)
+        self.set_requires_grad([self.netG_A, self.netG_B], False)
+        
+        loss_D = self.training_step_D()
+        opt_D.zero_grad()  # Đảm bảo xóa gradient cũ
+        loss_D.backward()  # Tính gradient cho loss D
+        opt_D.step()  # Cập nhật D
 
-            # Tính toán loss cho Discriminators
-            loss_D = self.training_step_D()
+        # Cập nhật Generators (optimizer_idx == 1)
+        self.set_requires_grad([self.netD_A, self.netD_B], False)
+        self.set_requires_grad([self.netG_A, self.netG_B], True)
+        
+        loss_G = self.training_step_G()
+        opt_G.zero_grad()  # Đảm bảo xóa gradient cũ
+        loss_G.backward()  # Tính gradient cho loss G
+        opt_G.step()  # Cập nhật G
 
-            # Cập nhật D
-            opt_D.zero_grad()  # Đảm bảo xóa gradient cũ
-            loss_D.backward()  # Tính gradient cho loss D
-            opt_D.step()  # Cập nhật D
+        return loss_G  # Trả về loss của Generator (hoặc có thể là loss tổng hợp nếu cần)
 
-            return loss_D
-
-        elif optimizer_idx == 1:
-            # Cập nhật cho Generators
-            self.set_requires_grad([self.netD_A, self.netD_B], False)
-            self.set_requires_grad([self.netG_A, self.netG_B], True)
-
-            # Tính toán loss cho Generators
-            loss_G = self.training_step_G()
-
-            # Cập nhật G
-            opt_G.zero_grad()  # Đảm bảo xóa gradient cũ
-            loss_G.backward()  # Tính gradient cho loss G
-            opt_G.step()  # Cập nhật G
-
-            return loss_G
 

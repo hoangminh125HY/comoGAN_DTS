@@ -135,8 +135,8 @@ def __flip(img, flip):
 def __print_size_warning(ow, oh, w, h):
     """Print warning information about image size(only print once)"""
     if not hasattr(__print_size_warning, 'has_printed'):
-        logger.warning("The image size needs to be a multiple of 4. "
-              "The loaded image size was (%d, %d), so it was adjusted to "
-              "(%d, %d). This adjustment will be done to all images "
-              "whose sizes are not multiples of 4" % (ow, oh, w, h))
+        print(f"The image size needs to be a multiple of 4. "
+              f"The loaded image size was ({ow}, {oh}), so it was adjusted to "
+              f"({w}, {h}). This adjustment will be done to all images "
+              "whose sizes are not multiples of 4")
         __print_size_warning.has_printed = True
