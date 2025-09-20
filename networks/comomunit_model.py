@@ -386,7 +386,7 @@ class CoMoMUNITModel(BaseModel):
     def training_step(self, batch, batch_idx, optimizer_idx):
         self.set_input(batch)
 
-        # Lấy các optimizers
+        # Lấy các optimizers thủ công
         opt_D, opt_G = self.optimizers()
 
         if optimizer_idx == 0:
@@ -394,12 +394,13 @@ class CoMoMUNITModel(BaseModel):
             self.set_requires_grad([self.netD_A, self.netD_B], True)
             self.set_requires_grad([self.netG_A, self.netG_B], False)
 
-            # Tính toán loss cho discriminators
+            # Tính toán loss cho Discriminators
             loss_D = self.training_step_D()
 
             # Cập nhật các optimizers cho D
-            opt_D.step()
-            opt_D.zero_grad()
+            opt_D.zero_grad()  # Đảm bảo xóa gradient cũ
+            loss_D.backward()  # Tính gradient cho loss D
+            opt_D.step()  # Cập nhật D
 
             return loss_D
 
@@ -408,11 +409,12 @@ class CoMoMUNITModel(BaseModel):
             self.set_requires_grad([self.netD_A, self.netD_B], False)
             self.set_requires_grad([self.netG_A, self.netG_B], True)
 
-            # Tính toán loss cho generators
+            # Tính toán loss cho Generators
             loss_G = self.training_step_G()
 
             # Cập nhật các optimizers cho G
-            opt_G.step()
-            opt_G.zero_grad()
+            opt_G.zero_grad()  # Đảm bảo xóa gradient cũ
+            loss_G.backward()  # Tính gradient cho loss G
+            opt_G.step()  # Cập nhật G
 
             return loss_G
