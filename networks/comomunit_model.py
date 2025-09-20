@@ -58,6 +58,8 @@ class CoMoMUNITModel(BaseModel):
 
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
+        self.automatic_optimization = False  # Tắt automatic optimization
+
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['D_A', 'G_A', 'cycle_A', 'rec_A', 'rec_style_B', 'rec_content_A', 'vgg_A', 'phi_net_A',
                            'D_B', 'G_B', 'cycle_B', 'rec_B', 'rec_style_A', 'rec_content_B', 'vgg_B', 'idt_B',
@@ -382,15 +384,35 @@ class CoMoMUNITModel(BaseModel):
         return self.loss_G
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-
         self.set_input(batch)
+
+        # Lấy các optimizers
+        opt_D, opt_G = self.optimizers()
+
         if optimizer_idx == 0:
+            # Set requires_grad cho các discriminators
             self.set_requires_grad([self.netD_A, self.netD_B], True)
             self.set_requires_grad([self.netG_A, self.netG_B], False)
 
-            return self.training_step_D()
+            # Tính toán loss cho discriminators
+            loss_D = self.training_step_D()
+
+            # Cập nhật các optimizers cho D
+            opt_D.step()
+            opt_D.zero_grad()
+
+            return loss_D
+
         elif optimizer_idx == 1:
-            self.set_requires_grad([self.netD_A, self.netD_B], False)  # Ds require no gradients when optimizing Gs
+            # Set requires_grad cho các generators
+            self.set_requires_grad([self.netD_A, self.netD_B], False)
             self.set_requires_grad([self.netG_A, self.netG_B], True)
 
-            return self.training_step_G()
+            # Tính toán loss cho generators
+            loss_G = self.training_step_G()
+
+            # Cập nhật các optimizers cho G
+            opt_G.step()
+            opt_G.zero_grad()
+
+            return loss_G

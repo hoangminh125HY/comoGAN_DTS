@@ -47,9 +47,9 @@ class Day2TimelapseDataset(BaseDataset):
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         BaseDataset.__init__(self, opt)
-        self.dir_day = os.path.join(opt.dataroot, 'sunny', 'Day')
-        self.dir_dusk = os.path.join(opt.dataroot, 'sunny', 'Dawn', 'Dusk')
-        self.dir_night = os.path.join(opt.dataroot, 'sunny', 'Night')
+        self.dir_day = os.path.join(opt.dataroot)
+        self.dir_dusk = os.path.join(opt.dataroot)
+        self.dir_night = os.path.join(opt.dataroot)
         self.A_paths = [os.path.join(self.dir_day, x) for x in os.listdir(self.dir_day)]   # load images from '/path/to/data/trainA'
         self.B_paths = [os.path.join(self.dir_dusk, x) for x in os.listdir(self.dir_dusk)]    # load images from '/path/to/data/trainB'
         self.B_paths += [os.path.join(self.dir_night, x) for x in os.listdir(self.dir_night)]    # load images from '/path/to/data/trainB'
