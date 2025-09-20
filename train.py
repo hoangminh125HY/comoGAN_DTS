@@ -37,7 +37,7 @@ def start(cmdline):
     precision = 16 if cmdline.mixed_precision else 32
 
     trainer = pl.Trainer(default_root_dir=os.path.join(root_dir, 'checkpoints'), callbacks=callbacks,
-                         devices=cmdline.gpus, logger=logger, precision=precision, amp_level='01')
+                         devices=cmdline.gpus, logger=logger, precision=precision)
     trainer.fit(model, dataset)
 
 
