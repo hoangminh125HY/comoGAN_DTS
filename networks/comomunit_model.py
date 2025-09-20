@@ -59,7 +59,6 @@ class CoMoMUNITModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
         self.automatic_optimization = False  # Tắt automatic optimization
-
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['D_A', 'G_A', 'cycle_A', 'rec_A', 'rec_style_B', 'rec_content_A', 'vgg_A', 'phi_net_A',
                            'D_B', 'G_B', 'cycle_B', 'rec_B', 'rec_style_A', 'rec_content_B', 'vgg_B', 'idt_B',
@@ -115,16 +114,18 @@ class CoMoMUNITModel(BaseModel):
                 param.requires_grad = False
 
     def configure_optimizers(self):
-        opt_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(),
-                                                 self.netDRB.parameters(), self.netPhi_net.parameters(),
-                                                 self.netPhi_net_A.parameters()),
-                                 weight_decay=0.0001, lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
-        opt_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),
-                                            weight_decay=0.0001, lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
+        # Tạo optimizers
+        opt_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(), ...),
+                                lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
+        opt_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters(), ...),
+                                lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
 
+        # Tạo scheduler cho các optimizers
         scheduler_G = self.get_scheduler(self.opt, opt_G)
         scheduler_D = self.get_scheduler(self.opt, opt_D)
+        
         return [opt_D, opt_G], [scheduler_D, scheduler_G]
+
 
     def set_input(self, input):
         # Input image. everything is mixed so we only have one style
@@ -385,19 +386,19 @@ class CoMoMUNITModel(BaseModel):
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         self.set_input(batch)
-
-        # Lấy các optimizers thủ công
+        
+        # Lấy các optimizers từ self.optimizers()
         opt_D, opt_G = self.optimizers()
 
         if optimizer_idx == 0:
-            # Set requires_grad cho các discriminators
+            # Cập nhật cho Discriminators
             self.set_requires_grad([self.netD_A, self.netD_B], True)
             self.set_requires_grad([self.netG_A, self.netG_B], False)
 
             # Tính toán loss cho Discriminators
             loss_D = self.training_step_D()
 
-            # Cập nhật các optimizers cho D
+            # Cập nhật D
             opt_D.zero_grad()  # Đảm bảo xóa gradient cũ
             loss_D.backward()  # Tính gradient cho loss D
             opt_D.step()  # Cập nhật D
@@ -405,16 +406,17 @@ class CoMoMUNITModel(BaseModel):
             return loss_D
 
         elif optimizer_idx == 1:
-            # Set requires_grad cho các generators
+            # Cập nhật cho Generators
             self.set_requires_grad([self.netD_A, self.netD_B], False)
             self.set_requires_grad([self.netG_A, self.netG_B], True)
 
             # Tính toán loss cho Generators
             loss_G = self.training_step_G()
 
-            # Cập nhật các optimizers cho G
+            # Cập nhật G
             opt_G.zero_grad()  # Đảm bảo xóa gradient cũ
             loss_G.backward()  # Tính gradient cho loss G
             opt_G.step()  # Cập nhật G
 
             return loss_G
+
