@@ -411,8 +411,10 @@ class CoMoMUNITModel(BaseModel):
 
         # Zero gradients, backward pass, and update
         opt_D.zero_grad()
-        scaler.scale(loss_D).backward()  # Scale the loss before backward pass
-        scaler.step(opt_D)  # Step the optimizer
+        
+        # Scale the loss and perform backward pass
+        scaler.scale(loss_D).backward()  # Use scaler to scale the loss
+        scaler.step(opt_D)  # Step the optimizer with the scaled gradients
         scaler.update()  # Update the scaler for next iteration
 
         # --- Update Generator (G) ---
@@ -424,11 +426,14 @@ class CoMoMUNITModel(BaseModel):
 
         # Zero gradients, backward pass, and update
         opt_G.zero_grad()
-        scaler.scale(loss_G).backward()  # Scale the loss before backward pass
-        scaler.step(opt_G)  # Step the optimizer
+        
+        # Scale the loss and perform backward pass
+        scaler.scale(loss_G).backward()  # Use scaler to scale the loss
+        scaler.step(opt_G)  # Step the optimizer with the scaled gradients
         scaler.update()  # Update the scaler for next iteration
 
         return loss_G  # Return the loss for logging
+
 
 
 
