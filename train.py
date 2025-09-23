@@ -14,7 +14,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from util.callbacks import LogAndCheckpointEveryNSteps
 from human_id import generate_id
 def get_options(cmdline):
-    opt = munch.Munch()
+    opt = Munch()
     opt.batch_size = cmdline.batch_size  # Đảm bảo nhận giá trị từ command line
     # Các tham số khác
     return opt
