@@ -9,7 +9,10 @@ import torch.utils.data as data
 from PIL import Image
 import torchvision.transforms as transforms
 from abc import ABC, abstractmethod
-import os
+import logging
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 class BaseDataset(data.Dataset, ABC):
     """This class is an abstract base class (ABC) for datasets.
@@ -63,39 +66,37 @@ def get_params(opt, size):
 
     return {'crop_pos': (x, y), 'flip': flip}
 
-def __resize_max(img, max_size=800, method=Image.BICUBIC):
-    """Resize ảnh sao cho chiều dài hoặc chiều rộng không vượt quá max_size"""
+
+def __resize_max(img, max_size=256, method=Image.BICUBIC):
     ow, oh = img.size
-    if ow <= max_size and oh <= max_size:
-        return img
-    scale = min(max_size / ow, max_size / oh)
+    scale = min(max_size / ow, max_size / oh, 1.0)
     new_w, new_h = int(ow * scale), int(oh * scale)
+    print(f"[DEBUG] Resize: ({ow}, {oh}) -> ({new_w}, {new_h})")
     return img.resize((new_w, new_h), method)
-def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, convert=True):
+
+
+def __resize_and_pad(img, size=256, method=Image.BICUBIC):
+    ow, oh = img.size
+    scale = min(size / ow, size / oh)
+    new_w, new_h = int(ow * scale), int(oh * scale)
+    img = img.resize((new_w, new_h), method)
+
+    # Pad cho đủ (256, 256)
+    new_img = Image.new("RGB", (size, size))
+    new_img.paste(img, ((size - new_w) // 2, (size - new_h) // 2))
+    return new_img
+
+
+def get_transform(opt=None, params=None, grayscale=False, method=Image.BICUBIC, convert=True):
     transform_list = []
     if grayscale:
         transform_list.append(transforms.Grayscale(1))
 
-    # Resize về max 800x800, giữ tỉ lệ
-    transform_list.append(transforms.Lambda(lambda img: __resize_max(img, 800, method)))
+    # 🔥 Resize + Pad
+    transform_list.append(transforms.Lambda(lambda img: __resize_and_pad(img, 256, method)))
 
-    # Crop
-    if 'crop' in opt.preprocess:
-        if params is None:
-            transform_list.append(transforms.RandomCrop(opt.crop_size))
-        else:
-            transform_list.append(transforms.Lambda(
-                lambda img: __crop(img, params['crop_pos'], opt.crop_size)
-            ))
+    transform_list.append(transforms.RandomHorizontalFlip())
 
-    # Flip
-    if not opt.no_flip:
-        if params is None:
-            transform_list.append(transforms.RandomHorizontalFlip())
-        elif params['flip']:
-            transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
-
-    # Convert sang tensor
     if convert:
         transform_list += [transforms.ToTensor()]
         if grayscale:
@@ -104,8 +105,6 @@ def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, conve
             transform_list += [transforms.Normalize((0.5, 0.5, 0.5),
                                                     (0.5, 0.5, 0.5))]
     return transforms.Compose(transform_list)
-
-
 
 
 def __make_power_2(img, base, method=Image.BICUBIC):
@@ -144,10 +143,12 @@ def __flip(img, flip):
 
 
 def __print_size_warning(ow, oh, w, h):
-    """Print warning information about image size(only print once)"""
+    """Print warning information about image size (only print once)"""
     if not hasattr(__print_size_warning, 'has_printed'):
-        print(f"The image size needs to be a multiple of 4. "
-              f"The loaded image size was ({ow}, {oh}), so it was adjusted to "
-              f"({w}, {h}). This adjustment will be done to all images "
-              "whose sizes are not multiples of 4")
+        logger.warning(
+            f"The image size needs to be a multiple of 4. "
+            f"The loaded image size was ({ow}, {oh}), so it was adjusted to "
+            f"({w}, {h}). This adjustment will be done to all images "
+            f"whose sizes are not multiples of 4"
+        )
         __print_size_warning.has_printed = True

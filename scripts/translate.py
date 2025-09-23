@@ -11,9 +11,7 @@ from math import pi
 from PIL import Image
 from munch import Munch
 from argparse import ArgumentParser as AP
-from torchvision.transforms import ToPILImage
-
-from torchvision.transforms import ToTensor
+from torchvision.transforms import ToPILImage, ToTensor
 
 p_mod = str(pathlib.Path('.').absolute())
 sys.path.append(p_mod.replace("/scripts", ""))
@@ -21,93 +19,78 @@ sys.path.append(p_mod.replace("/scripts", ""))
 from data.base_dataset import get_transform
 from networks import create_model
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 def printProgressBar(i, max, postText):
-    n_bar = 20 #size of progress bar
-    j= i/max
+    n_bar = 20
+    j = i / max
     sys.stdout.write('\r')
     sys.stdout.write(f"[{'=' * int(n_bar * j):{n_bar}s}] {int(100 * j)}%  {postText}")
     sys.stdout.flush()
 
+
 def inference(model, opt, A_path, phi):
     t_phi = torch.tensor(phi)
-    # Load the image
     A_img = Image.open(A_path).convert('RGB')
-    # Apply image transformation
     A = get_transform(opt, convert=False)(A_img)
-    # Normalization between -1 and 1
     img_real = (((ToTensor()(A)) * 2) - 1).unsqueeze(0)
-    # Forward our image into the model with the specified ɸ
-    img_fake = model.forward(img_real.cuda(0), t_phi.cuda(0))
-
+    img_fake = model.forward(img_real.to(device), t_phi.to(device))
     return ToPILImage()((img_fake[0].cpu() + 1) / 2)
 
+
 def main(cmdline):
+    # ---- Đường dẫn trực tiếp đến hparams.yaml và checkpoint ----
+    hparams_path = "/content/CoMoGAN_Modified/logs/pretrained/tensorboard/default/version_0/hparams.yaml"
+    checkpoint_path = "/content/CoMoGAN_Modified/logs/pretrained/tensorboard/default/version_0/checkpoints/iter_000000.pth"
 
-    if cmdline.phi < 0 or cmdline.phi > (2 * pi):
-        raise ValueError("Value should be between [0,2𝜋]")
+    print(f"Loading hparams from {hparams_path}")
+    print(f"Loading checkpoint from {checkpoint_path}")
 
-    if cmdline.checkpoint is None:
-        # Load names of directories inside /logs
-        p = pathlib.Path('./logs')
-        list_run_id = [str(x).split('/')[1] for x in p.iterdir() if x.is_dir()]
-
-        RUN_ID = list_run_id[0]
-        root_dir = os.path.join('logs', RUN_ID, 'tensorboard', 'default', 'version_0')
-        p = pathlib.Path(root_dir + '/checkpoints')
-        # Load a list of checkpoints, use the last one by default
-        list_checkpoint = [str(x).split('checkpoints/')[1] for x in p.iterdir() if 'iter' in str(x)]
-        list_checkpoint.sort(reverse = True, key=lambda x: int(x.split('_')[1].split('.pth')[0]))
-
-        CHECKPOINT = list_checkpoint[0]
-    else:
-        RUN_ID = (cmdline.checkpoint.split("/tensorboard")[0]).split("/")[-1]
-        root_dir = cmdline.checkpoint.split("/checkpoints")[0]
-        CHECKPOINT = cmdline.checkpoint.split('checkpoints/')[1]
-
-    print("Load checkpoint {} from {}".format(CHECKPOINT, RUN_ID))
-
-    # Load parameters
-    with open(os.path.join(root_dir, 'hparams.yaml')) as cfg_file:
+    # ---- Load parameters ----
+    with open(hparams_path) as cfg_file:
         opt = Munch(yaml.safe_load(cfg_file))
-
     opt.no_flip = True
-    # Load parameters to the model, load the checkpoint
-    model = create_model(opt)
-    model = model.load_from_checkpoint((os.path.join(root_dir, 'checkpoints/', CHECKPOINT)))
-    # Transfer the model to the GPU
-    model.to('cuda');
-    # Load paths of all files contain in /Day
+
+    # ---- Load model từ checkpoint ----
+    model_class = create_model(opt).__class__
+    model = model_class.load_from_checkpoint(checkpoint_path, opt=opt)
+    model.to(device)
+
+    # ---- Load dataset ----
     p = pathlib.Path(cmdline.load_path)
-    dataset_paths = [str(x).replace(cmdline.load_path,'') for x in p.iterdir()]
+    dataset_paths = [str(x.relative_to(cmdline.load_path)) for x in p.iterdir()]
     dataset_paths.sort()
-    # Load only files that contained the given string
-    sequence_name = []
+
     if cmdline.sequence is not None:
-        for file in dataset_paths:
-            if cmdline.sequence in file:
-                sequence_name.append(file)
+        sequence_name = [f for f in dataset_paths if cmdline.sequence in f]
     else:
         sequence_name = dataset_paths
 
-    # Create repository if it doesn't exist
-    os.makedirs(os.path.dirname(cmdline.save_path), exist_ok=True)
+    os.makedirs(cmdline.save_path, exist_ok=True)
 
     i = 0
     for path_img in sequence_name:
         printProgressBar(i, len(sequence_name), path_img)
-        # Forward our image into the model with the specified ɸ
-        out_img = inference(model, opt, cmdline.load_path + path_img, cmdline.phi)
-        # Saving the generated image
-        save_path = cmdline.save_path + path_img.split("/")[-1]
-        out_img.save(save_path)
+        for phi in torch.arange(0, 2 * pi, 0.2):
+            out_img = inference(model, opt, os.path.join(cmdline.load_path, path_img), phi)
+            save_path = os.path.join(
+                cmdline.save_path,
+                f"{os.path.splitext(os.path.basename(path_img))[0]}_phi_{phi:.1f}.png"
+            )
+            out_img.save(save_path)
         i += 1
+
 
 if __name__ == '__main__':
     ap = AP()
-    ap.add_argument('--load_path', default='/datasets/waymo_comogan/val/sunny/Day/', type=str, help='Set a path to load the dataset to translate')
-    ap.add_argument('--save_path', default='/CoMoGan/images/', type=str, help='Set a path to save the dataset')
-    ap.add_argument('--sequence', default=None, type=str, help='Set a sequence, will only use the image that contained the string specified')
-    ap.add_argument('--checkpoint', default=None, type=str, help='Set a path to the checkpoint that you want to use')
-    ap.add_argument('--phi', default=0.0, type=float, help='Choose the angle of the sun 𝜙 between [0,2𝜋], which maps to a sun elevation ∈ [+30◦,−40◦]')
+    ap.add_argument('--load_path', default='/datasets/waymo_comogan/val/sunny/Day/', type=str,
+                    help='Path to load the dataset to translate')
+    ap.add_argument('--save_path', default='/CoMoGan/images/', type=str,
+                    help='Path to save the dataset')
+    ap.add_argument('--sequence', default=None, type=str,
+                    help='Only process images containing this string')
+    ap.add_argument('--phi', default=0.0, type=float,
+                    help='Angle of the sun φ between [0,2π]')
     main(ap.parse_args())
     print("\n")

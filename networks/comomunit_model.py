@@ -10,12 +10,7 @@ from .base_model import BaseModel
 from .backbones import comomunit as networks
 import random
 import munch
-from torch.cuda.amp import GradScaler
-def get_options(cmdline):
-    opt = munch.Munch()
-    opt.batch_size = cmdline.batch_size  # Đảm bảo nhận giá trị từ command line
-    # Các tham số khác
-    return opt
+
 
 def ModelOptions():
     mo = munch.Munch()
@@ -63,8 +58,7 @@ class CoMoMUNITModel(BaseModel):
 
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
-        self.automatic_optimization = False  # Tắt automatic optimization
-        self.scaler = GradScaler()  # Initialize GradScaler
+        self.automatic_optimization = False
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['D_A', 'G_A', 'cycle_A', 'rec_A', 'rec_style_B', 'rec_content_A', 'vgg_A', 'phi_net_A',
                            'D_B', 'G_B', 'cycle_B', 'rec_B', 'rec_style_A', 'rec_content_B', 'vgg_B', 'idt_B',
@@ -120,25 +114,17 @@ class CoMoMUNITModel(BaseModel):
                 param.requires_grad = False
 
     def configure_optimizers(self):
-        # Tạo optimizers cho Generator (G) và Discriminator (D)
-        opt_G = torch.optim.Adam(
-            itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(),
-                            self.netDRB.parameters(), self.netPhi_net.parameters(),
-                            self.netPhi_net_A.parameters()),  # Các tham số của tất cả các mô hình liên quan
-            lr=self.opt.lr, betas=(self.opt.beta1, 0.999)
-        )
-        opt_D = torch.optim.Adam(
-            itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),  # Các tham số của discriminators
-            lr=self.opt.lr, betas=(self.opt.beta1, 0.999)
-        )
+        opt_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters(),
+                                                 self.netDRB.parameters(), self.netPhi_net.parameters(),
+                                                 self.netPhi_net_A.parameters()),
+                                 weight_decay=0.0001, lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
+        opt_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),
+                                            weight_decay=0.0001, lr=self.opt.lr, betas=(self.opt.beta1, 0.999))
 
-        # Tạo scheduler cho các optimizers
         scheduler_G = self.get_scheduler(self.opt, opt_G)
         scheduler_D = self.get_scheduler(self.opt, opt_D)
-
         return [opt_D, opt_G], [scheduler_D, scheduler_G]
 
-    
     def set_input(self, input):
         # Input image. everything is mixed so we only have one style
         self.x = input['A']
@@ -397,47 +383,27 @@ class CoMoMUNITModel(BaseModel):
         return self.loss_G
 
     def training_step(self, batch, batch_idx):
-        # Set input data for the model
+        # Gán input cho model (quan trọng để có self.y_tilde, self.x, self.phi,...)
         self.set_input(batch)
 
-        # Get optimizers
-        opt_D, opt_G = self.optimizers()
+        # Lấy 2 optimizer
+        opt_d, opt_g = self.optimizers()
 
-        # Initialize GradScaler for mixed precision
-        scaler = self.scaler
+        # ---- Generator update ----
+        g_loss = self.training_step_G()
+        self.manual_backward(g_loss)
+        opt_g.step()
+        opt_g.zero_grad()
 
-        # --- Update Discriminator (D) ---
-        self.set_requires_grad([self.netD_A, self.netD_B], True)  # Enable gradients for D
-        self.set_requires_grad([self.netG_A, self.netG_B], False)  # Disable gradients for G
-        
-        # Calculate loss for D
-        loss_D = self.training_step_D()
+        # ---- Discriminator update ----
+        d_loss = self.training_step_D()
+        self.manual_backward(d_loss)
+        opt_d.step()
+        opt_d.zero_grad()
 
-        # Zero gradients, backward pass, and update
-        opt_D.zero_grad()
-        
-        # Scale the loss and perform backward pass
-        scaler.scale(loss_D).backward()  # Use scaler to scale the loss
-        scaler.step(opt_D)  # Step the optimizer with the scaled gradients
-        scaler.update()  # Update the scaler for next iteration
+        # Logging
+        self.log("g_loss", g_loss, prog_bar=True, on_epoch=True)
+        self.log("d_loss", d_loss, prog_bar=True, on_epoch=True)
 
-        # --- Update Generator (G) ---
-        self.set_requires_grad([self.netD_A, self.netD_B], False)  # Disable gradients for D
-        self.set_requires_grad([self.netG_A, self.netG_B], True)  # Enable gradients for G
-        
-        # Calculate loss for G
-        loss_G = self.training_step_G()
-
-        # Zero gradients, backward pass, and update
-        opt_G.zero_grad()
-        
-        # Scale the loss and perform backward pass
-        scaler.scale(loss_G).backward()  # Use scaler to scale the loss
-        scaler.step(opt_G)  # Step the optimizer with the scaled gradients
-        scaler.update()  # Update the scaler for next iteration
-
-        return loss_G  # Return the loss for logging
-
-
-
+        return {"g_loss": g_loss, "d_loss": d_loss}
 
