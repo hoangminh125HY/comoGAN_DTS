@@ -10,6 +10,11 @@ import pytorch_lightning as pl
 from torch.optim import lr_scheduler
 
 from torchvision.transforms import ToPILImage
+import logging
+
+# Thiết lập logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 class BaseModel(pl.LightningModule):
 

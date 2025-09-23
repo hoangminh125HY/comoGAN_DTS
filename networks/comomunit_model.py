@@ -11,7 +11,11 @@ from .backbones import comomunit as networks
 import random
 import munch
 from torch.cuda.amp import GradScaler
-
+def get_options(cmdline):
+    opt = munch.Munch()
+    opt.batch_size = cmdline.batch_size  # Đảm bảo nhận giá trị từ command line
+    # Các tham số khác
+    return opt
 
 def ModelOptions():
     mo = munch.Munch()

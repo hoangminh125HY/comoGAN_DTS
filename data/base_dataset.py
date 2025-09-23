@@ -9,6 +9,7 @@ import torch.utils.data as data
 from PIL import Image
 import torchvision.transforms as transforms
 from abc import ABC, abstractmethod
+import os
 
 class BaseDataset(data.Dataset, ABC):
     """This class is an abstract base class (ABC) for datasets.
@@ -62,39 +63,49 @@ def get_params(opt, size):
 
     return {'crop_pos': (x, y), 'flip': flip}
 
-
+def __resize_max(img, max_size=800, method=Image.BICUBIC):
+    """Resize ảnh sao cho chiều dài hoặc chiều rộng không vượt quá max_size"""
+    ow, oh = img.size
+    if ow <= max_size and oh <= max_size:
+        return img
+    scale = min(max_size / ow, max_size / oh)
+    new_w, new_h = int(ow * scale), int(oh * scale)
+    return img.resize((new_w, new_h), method)
 def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, convert=True):
     transform_list = []
     if grayscale:
         transform_list.append(transforms.Grayscale(1))
-    if 'resize' in opt.preprocess:
-        osize = [opt.load_size, opt.load_size]
-        transform_list.append(transforms.Resize(osize, method))
-    elif 'scale_width' in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
 
+    # Resize về max 800x800, giữ tỉ lệ
+    transform_list.append(transforms.Lambda(lambda img: __resize_max(img, 800, method)))
+
+    # Crop
     if 'crop' in opt.preprocess:
         if params is None:
             transform_list.append(transforms.RandomCrop(opt.crop_size))
         else:
-            transform_list.append(transforms.Lambda(lambda img: __crop(img, params['crop_pos'], opt.crop_size)))
+            transform_list.append(transforms.Lambda(
+                lambda img: __crop(img, params['crop_pos'], opt.crop_size)
+            ))
 
-    if opt.preprocess == 'none':
-        transform_list.append(transforms.Lambda(lambda img: __make_power_2(img, base=4, method=method)))
-
+    # Flip
     if not opt.no_flip:
         if params is None:
             transform_list.append(transforms.RandomHorizontalFlip())
         elif params['flip']:
             transform_list.append(transforms.Lambda(lambda img: __flip(img, params['flip'])))
 
+    # Convert sang tensor
     if convert:
         transform_list += [transforms.ToTensor()]
         if grayscale:
             transform_list += [transforms.Normalize((0.5,), (0.5,))]
         else:
-            transform_list += [transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
+            transform_list += [transforms.Normalize((0.5, 0.5, 0.5),
+                                                    (0.5, 0.5, 0.5))]
     return transforms.Compose(transform_list)
+
+
 
 
 def __make_power_2(img, base, method=Image.BICUBIC):

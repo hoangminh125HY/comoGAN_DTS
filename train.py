@@ -12,7 +12,11 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from util.callbacks import LogAndCheckpointEveryNSteps
 from human_id import generate_id
-
+def get_options(cmdline):
+    opt = munch.Munch()
+    opt.batch_size = cmdline.batch_size  # Đảm bảo nhận giá trị từ command line
+    # Các tham số khác
+    return opt
 def start(cmdline):
 
     pl.trainer.seed_everything(cmdline.seed)
@@ -34,7 +38,7 @@ def start(cmdline):
     else:
         root_dir = os.path.join('/tmp', generate_id())
 
-    precision = 16 if cmdline.mixed_precision else 32
+    precision = "16-mixed" if cmdline.mixed_precision else 32
 
     trainer = pl.Trainer(default_root_dir=os.path.join(root_dir, 'checkpoints'), callbacks=callbacks,
                          devices=cmdline.gpus, logger=logger, precision=precision)
@@ -55,5 +59,7 @@ if __name__ == '__main__':
     ap.add_argument('--decay_step_gamma', default=0.5, type=float, help='Decay step gamma')
     ap.add_argument('--seed', default=1, type=int, help='Random seed')
     ap.add_argument('--mixed_precision', default=False, action='store_true', help='Use mixed precision to reduce memory usage')
+    ap.add_argument('--batch_size', default=1, type=int, help='Batch size for training')
+
     start(ap.parse_args())
 
