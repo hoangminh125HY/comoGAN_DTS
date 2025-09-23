@@ -6,6 +6,7 @@ from options import get_options
 from data import create_dataset
 from networks import create_model, get_model_options
 from argparse import ArgumentParser as AP
+from munch import Munch
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
